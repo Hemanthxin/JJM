@@ -271,6 +271,13 @@ export default function PrimaryAnalysis() {
   const [sheet, setSheet] = useState("");
   const [metric, setMetric] = useState<Metric>("all");
   const [indKey, setIndKey] = useState("0-0"); // selected indicator (tableIdx-indIdx) for compare modes
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 760px)");
+    const upd = () => setIsNarrow(mq.matches);
+    upd(); mq.addEventListener("change", upd);
+    return () => mq.removeEventListener("change", upd);
+  }, []);
 
   useEffect(() => { fetch("/primary_data.json").then((r) => r.json()).then((d) => { setPd(d); setSheet(d.sheets[0]); }); }, []);
 
@@ -375,12 +382,25 @@ export default function PrimaryAnalysis() {
                 ) : (
                   <>
                     <h3>District ranking <small>{selInd?.label}</small></h3>
-                    <div className="rankwrap"><table>
-                      <thead><tr><th className="rk">#</th><th style={{ textAlign: "left" }}>District</th><th>{metric === "n" ? "N" : "%"}</th></tr></thead>
-                      <tbody>{ranked.map((e, i) => (<tr key={e.u} onClick={() => { setLevel("District"); setUnit(e.u); }} style={{ cursor: "pointer" }}>
-                        <td><span className="rankbadge" style={{ background: lerpRYG(rMx > rMn ? (e.v - rMn) / (rMx - rMn) : 0.5) }}>{i + 1}</span></td>
-                        <td style={{ textAlign: "left" }}>{e.u}</td><td style={{ textAlign: "center", fontWeight: 700 }}>{fmtV(e.v)}</td></tr>))}</tbody>
-                    </table></div>
+                    {(() => {
+                      const cols = isNarrow ? 1 : 3;
+                      const per = Math.ceil(ranked.length / cols);
+                      const row = (e: { u: string; v: number }, gi: number) => (
+                        <tr key={e.u} onClick={() => { setLevel("District"); setUnit(e.u); }} style={{ cursor: "pointer" }}>
+                          <td><span className="rankbadge" style={{ background: lerpRYG(rMx > rMn ? (e.v - rMn) / (rMx - rMn) : 0.5) }}>{gi + 1}</span></td>
+                          <td style={{ textAlign: "left" }}>{e.u}</td><td style={{ textAlign: "center", fontWeight: 700 }}>{fmtV(e.v)}</td>
+                        </tr>);
+                      return (
+                        <div className={cols === 1 ? "rankwrap" : "rank2col"}>
+                          {Array.from({ length: cols }).map((_, col) => (
+                            <table key={col}>
+                              <thead><tr><th className="rk">#</th><th style={{ textAlign: "left" }}>District</th><th>{metric === "n" ? "N" : "%"}</th></tr></thead>
+                              <tbody>{ranked.slice(col * per, col * per + per).map((e, i) => row(e, col * per + i))}</tbody>
+                            </table>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </>
                 )}
               </div>
