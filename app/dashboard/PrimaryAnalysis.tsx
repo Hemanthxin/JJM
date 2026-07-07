@@ -280,16 +280,21 @@ function DivBarChart({ data, suf }: { data: { u: string; v: number }[]; suf: str
 const COMPARE_OPTS: { v: ChartKind; t: string }[] = [
   { v: "doughnut", t: "Doughnut" }, { v: "pie", t: "Pie" }, { v: "polarArea", t: "Polar" }, { v: "bar", t: "Bar" }, { v: "hbar", t: "Horizontal Bar" },
 ];
-function CompareCard({ title, indLabel, data, isDiv }: { title: string; indLabel: string; data: { u: string; v: number }[]; isDiv: boolean }) {
+function CompareCard({ title, indLabel, data, isDiv }: { title: string; indLabel: string; data: any[]; isDiv: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const chart = useRef<Chart | null>(null);
   const [type, setType] = useState<ChartKind>(isDiv ? "doughnut" : "hbar");
+  const [cat, setCat] = useState<"all" | "sc" | "st">("all");
+  const pre = cat === "sc" ? "sc" : cat === "st" ? "st" : "o";     // value prefix for the chart
+  const rows = useMemo(() => [...data].sort((a, b) => (b.ind[pre + "P"] ?? -1) - (a.ind[pre + "P"] ?? -1)), [data, pre]);
+  const cols: [string, string][] = cat === "all" ? [["Overall", "o"], ["SC", "sc"], ["ST", "st"]] : cat === "sc" ? [["SC", "sc"]] : [["ST", "st"]];
+  const headCells = cols.flatMap(([l, p]) => [{ k: p + "N", t: `${l} N` }, { k: p + "P", t: `${l} %` }]);
   useEffect(() => {
     if (!canvas.current) return;
-    const vals = data.map((d) => d.v);
+    const vals = rows.map((r) => r.ind[pre + "P"]);
     const mn = Math.min(...vals), mx = Math.max(...vals);
-    const labels = data.map((d) => isDiv ? d.u.replace(" Division", "") : d.u);
-    const colors = data.map((d) => isDiv ? (DIVCOLORS[d.u] || "#888") : lerpRYG(mx > mn ? (d.v - mn) / (mx - mn) : 0.5));
+    const labels = rows.map((r) => isDiv ? r.u.replace(" Division", "") : r.u);
+    const colors = rows.map((r) => isDiv ? (DIVCOLORS[r.u] || "#888") : lerpRYG(mx > mn ? (r.ind[pre + "P"] - mn) / (mx - mn) : 0.5));
     chart.current?.destroy();
     let cfg: any;
     if (type === "doughnut" || type === "pie" || type === "polarArea") {
@@ -304,21 +309,31 @@ function CompareCard({ title, indLabel, data, isDiv }: { title: string; indLabel
     }
     chart.current = new Chart(canvas.current, cfg);
     return () => chart.current?.destroy();
-  }, [data, type, isDiv]);
+  }, [rows, type, cat, isDiv, pre]);
+  const vv = rows.map((r) => r.ind[pre + "P"]); const vmn = Math.min(...vv), vmx = Math.max(...vv);
   return (
     <div className="card">
       <div className="cardhead">
-        <div className="ct"><b>{title}</b><small>by {isDiv ? "division" : "district"} · {indLabel} (Overall %)</small></div>
-        <select className="chartsel" value={type} onChange={(e) => setType(e.target.value as ChartKind)}>
-          {COMPARE_OPTS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
-        </select>
+        <div className="ct"><b>{title}</b><small>by {isDiv ? "division" : "district"} · {indLabel}</small></div>
+        <div className="headctl">
+          <select className="chartsel" value={type} onChange={(e) => setType(e.target.value as ChartKind)}>
+            {COMPARE_OPTS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+          </select>
+          <div className="seg catseg">{(["all", "sc", "st"] as const).map((c) => (
+            <button key={c} className={cat === c ? "active" : ""} onClick={() => setCat(c)}>{c === "all" ? "All" : c.toUpperCase()}</button>))}</div>
+        </div>
       </div>
       <div className="chartbox"><canvas ref={canvas} /></div>
       <div className="tablewrap">
         <table>
-          <thead><tr><th>#</th><th style={{ textAlign: "left" }}>{isDiv ? "Division" : "District"}</th><th>Overall %</th></tr></thead>
-          <tbody>{data.map((e, i) => (
-            <tr key={e.u}><td>{i + 1}</td><td style={{ textAlign: "left" }}><span className="sw" style={{ background: isDiv ? (DIVCOLORS[e.u] || "#888") : lerpRYG(0.5) }} />{e.u}</td><td style={{ fontWeight: 700 }}>{e.v}%</td></tr>
+          <thead><tr><th>#</th><th style={{ textAlign: "left" }}>{isDiv ? "Division" : "District"}</th>
+            {headCells.map((h) => <th key={h.k}>{h.t}</th>)}</tr></thead>
+          <tbody>{rows.map((e, i) => (
+            <tr key={e.u}>
+              <td>{i + 1}</td>
+              <td style={{ textAlign: "left" }}><span className="sw" style={{ background: isDiv ? (DIVCOLORS[e.u] || "#888") : lerpRYG(vmx > vmn ? (e.ind[pre + "P"] - vmn) / (vmx - vmn) : 0.5) }} />{e.u}</td>
+              {headCells.map((h) => <td key={h.k}>{h.k.endsWith("N") ? fmtN(e.ind[h.k]) : e.ind[h.k]}</td>)}
+            </tr>
           ))}</tbody>
         </table>
       </div>
@@ -377,11 +392,11 @@ export default function PrimaryAnalysis() {
   const fmtV = (v: number) => v + "%";
   // per-table comparison: every table of the topic, compared across all districts/divisions (by its 1st indicator)
   const compTables = useMemo(() => {
-    if (!isComp || !pd) return [] as { title: string; indLabel: string; data: { u: string; v: number }[] }[];
+    if (!isComp || !pd) return [] as { title: string; indLabel: string; data: any[] }[];
     return refTables.map((t: any, ti: number) => ({
       title: t.title, indLabel: t.indicators?.[0]?.label || "",
-      data: compUnits.map((u) => { const ind = pd.data[compKey]?.[u]?.tables?.[sheet]?.[ti]?.indicators?.[0]; return { u, v: ind ? ind.oP : null }; })
-        .filter((e: any) => e.v != null).sort((a: any, b: any) => b.v - a.v) as { u: string; v: number }[],
+      data: compUnits.map((u) => { const ind = pd.data[compKey]?.[u]?.tables?.[sheet]?.[ti]?.indicators?.[0]; return ind ? { u, v: ind.oP, ind } : { u, v: null, ind: null }; })
+        .filter((e: any) => e.v != null).sort((a: any, b: any) => b.v - a.v),
     }));
   }, [isComp, level, sheet, pd]); // eslint-disable-line
 
