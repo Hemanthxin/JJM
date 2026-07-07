@@ -20,6 +20,19 @@ const short = (s: string) => (s.length > 22 ? s.slice(0, 20) + "…" : s);
 const DIVCOLORS: Record<string, string> = {
   "Bengaluru Division": "#2f6fed", "Mysuru Division": "#f07f2f", "Belagavi Division": "#1ba97a", "Kalaburagi Division": "#7b3ff2",
 };
+// the representative "headline" indicator (tableIdx-indIdx) used when comparing a topic
+const TOPIC_HEADLINE: Record<string, string> = {
+  "1. Demographics": "0-1",            // Female %
+  "2. JJM Awareness": "0-0",           // Aware of JJM – Yes
+  "3. FHTC Coverage": "0-0",           // Households with FHTC – Yes
+  "4. Satisfaction & Tap": "0-1",      // Satisfied
+  "5. Availability & Quality": "1-0",  // Year-round supply after JJM (10–12 months)
+  "6. Water Utilization": "0-0",       // Uses JJM water for drinking
+  "7. Impact": "0-1",                  // Increased income-generating work
+  "8. Implementation": "0-0",          // No payment for connection
+  "9. RWH & GWH": "0-0",               // Rain water harvesting – Yes
+  "10. BCC": "0-0",                    // Awareness campaigns conducted – Yes
+};
 // red (low) -> yellow -> green (high) heat scale for rankings / map
 const lerpRYG = (t: number) => {
   t = Math.max(0, Math.min(1, t));
@@ -298,9 +311,10 @@ export default function PrimaryAnalysis() {
   const refTables = pd?.data?.State?.Karnataka?.tables?.[sheet] || [];
   const indOptions = useMemo(() => refTables.flatMap((t: any, ti: number) =>
     t.indicators.map((ind: any, ii: number) => ({ key: `${ti}-${ii}`, ti, ii, tt: t.title, label: ind.label }))), [refTables]);
-  useEffect(() => { if (indOptions.length && !indOptions.some((o: any) => o.key === indKey)) setIndKey(indOptions[0].key); }, [sheet, indOptions]); // eslint-disable-line
+  // when the topic changes, compare by that topic's headline indicator
+  useEffect(() => { if (indOptions.length) { const h = TOPIC_HEADLINE[sheet]; setIndKey(indOptions.some((o: any) => o.key === h) ? h : indOptions[0].key); } }, [sheet, indOptions]); // eslint-disable-line
   const selInd = indOptions.find((o: any) => o.key === indKey) || indOptions[0];
-  const mKey = metric === "n" ? "oN" : "oP";
+  const mKey = "oP"; // compare always ranks by Overall %
   const ranked = useMemo(() => {
     if (!isComp || !selInd) return [] as { u: string; v: number }[];
     return compUnits.map((u) => { const t = pd.data[compKey]?.[u]?.tables?.[sheet]?.[selInd.ti]; const ind = t?.indicators?.[selInd.ii]; return { u, v: ind ? ind[mKey] : null }; })
@@ -310,8 +324,8 @@ export default function PrimaryAnalysis() {
   const rMn = rvals.length ? Math.min(...rvals) : 0, rMx = rvals.length ? Math.max(...rvals) : 1;
   const heat = useMemo(() => level === "All Districts" ? { vals: Object.fromEntries(ranked.map((e) => [e.u, e.v])), mn: rMn, mx: rMx } : undefined, [ranked, level]); // eslint-disable-line
   const divColorMap = useMemo(() => { if (level !== "All Divisions" || !pd) return undefined; const m: Record<string, string> = {}; for (const [div, dists] of Object.entries(pd.divisions)) for (const d of dists as string[]) m[d] = DIVCOLORS[div] || "#888"; return m; }, [level, pd]);
-  const suf = metric === "n" ? "" : "%";
-  const fmtV = (v: number) => metric === "n" ? fmtN(v) : v + "%";
+  const suf = "%";
+  const fmtV = (v: number) => v + "%";
 
   if (!pd) return <main className="dash"><div className="card" style={{ marginTop: 20 }}><h3>Loading primary analysis…</h3></div></main>;
 
@@ -335,17 +349,12 @@ export default function PrimaryAnalysis() {
             {pd.sheets.map((s: string) => <option key={s}>{s}</option>)}
           </select>
         </div>
-        {isComp && (
-          <div className="ctl"><label>Indicator to compare</label>
-            <select value={indKey} onChange={(e) => setIndKey(e.target.value)} style={{ width: "100%", maxWidth: 340 }}>
-              {indOptions.map((o: any) => <option key={o.key} value={o.key}>{o.tt.replace(/^Table[^:]*:\s*/, "")} — {o.label}</option>)}
-            </select>
+        {!isComp && (
+          <div className="ctl"><label>Values</label>
+            <div className="seg">{(["all", "pct", "n"] as Metric[]).map((v) => (
+              <button key={v} className={metric === v ? "active" : ""} onClick={() => setMetric(v)}>{v === "all" ? "All" : v === "pct" ? "%" : "N"}</button>))}</div>
           </div>
         )}
-        <div className="ctl"><label>Values</label>
-          <div className="seg">{(isComp ? (["pct", "n"] as Metric[]) : (["all", "pct", "n"] as Metric[])).map((v) => (
-            <button key={v} className={metric === v ? "active" : ""} onClick={() => setMetric(v)}>{v === "all" ? "All" : v === "pct" ? "%" : "N"}</button>))}</div>
-        </div>
       </div>
 
       <main className="dash">
@@ -374,7 +383,7 @@ export default function PrimaryAnalysis() {
                     <h3>Division comparison <small>{selInd?.label}</small></h3>
                     <div className="chartbox" style={{ height: 240 }}><DivBarChart data={ranked} suf={suf} /></div>
                     <div className="tablewrap" style={{ marginTop: 10 }}>
-                      <table><thead><tr><th></th><th style={{ textAlign: "left" }}>Division</th><th>{metric === "n" ? "N" : "%"}</th></tr></thead>
+                      <table><thead><tr><th></th><th style={{ textAlign: "left" }}>Division</th><th>Overall %</th></tr></thead>
                         <tbody>{ranked.map((e) => (<tr key={e.u} onClick={() => { setLevel("Division"); setUnit(e.u); }} style={{ cursor: "pointer" }}>
                           <td><span className="sw" style={{ background: DIVCOLORS[e.u] }} /></td><td style={{ textAlign: "left" }}>{e.u}</td><td style={{ textAlign: "center", fontWeight: 700 }}>{fmtV(e.v)}</td></tr>))}</tbody></table>
                     </div>
@@ -394,7 +403,7 @@ export default function PrimaryAnalysis() {
                         <div className={cols === 1 ? "rankwrap" : "rank2col"}>
                           {Array.from({ length: cols }).map((_, col) => (
                             <table key={col}>
-                              <thead><tr><th className="rk">#</th><th style={{ textAlign: "left" }}>District</th><th>{metric === "n" ? "N" : "%"}</th></tr></thead>
+                              <thead><tr><th className="rk">#</th><th style={{ textAlign: "left" }}>District</th><th>Overall %</th></tr></thead>
                               <tbody>{ranked.slice(col * per, col * per + per).map((e, i) => row(e, col * per + i))}</tbody>
                             </table>
                           ))}
