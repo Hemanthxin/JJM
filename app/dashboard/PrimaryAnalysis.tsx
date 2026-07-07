@@ -276,6 +276,56 @@ function DivBarChart({ data, suf }: { data: { u: string; v: number }[]; suf: str
   return <canvas ref={canvas} />;
 }
 
+/* per-table compare card: one table, compared across all districts / divisions */
+const COMPARE_OPTS: { v: ChartKind; t: string }[] = [
+  { v: "doughnut", t: "Doughnut" }, { v: "pie", t: "Pie" }, { v: "polarArea", t: "Polar" }, { v: "bar", t: "Bar" }, { v: "hbar", t: "Horizontal Bar" },
+];
+function CompareCard({ title, indLabel, data, isDiv }: { title: string; indLabel: string; data: { u: string; v: number }[]; isDiv: boolean }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const chart = useRef<Chart | null>(null);
+  const [type, setType] = useState<ChartKind>(isDiv ? "doughnut" : "hbar");
+  useEffect(() => {
+    if (!canvas.current) return;
+    const vals = data.map((d) => d.v);
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const labels = data.map((d) => isDiv ? d.u.replace(" Division", "") : d.u);
+    const colors = data.map((d) => isDiv ? (DIVCOLORS[d.u] || "#888") : lerpRYG(mx > mn ? (d.v - mn) / (mx - mn) : 0.5));
+    chart.current?.destroy();
+    let cfg: any;
+    if (type === "doughnut" || type === "pie" || type === "polarArea") {
+      cfg = { type, data: { labels, datasets: [{ data: vals, backgroundColor: colors, borderColor: "#fff", borderWidth: 2 }] },
+        options: { responsive: true, maintainAspectRatio: false, ...(type === "doughnut" ? { cutout: "55%" } : {}),
+          plugins: { legend: { position: "right", labels: { boxWidth: 12, color: "#000", font: { size: 10.5 }, padding: 6 } }, tooltip: { callbacks: { label: (c: any) => `${c.label}: ${c.raw}%` } } } } };
+    } else {
+      cfg = { type: "bar", data: { labels, datasets: [{ data: vals, backgroundColor: colors, borderRadius: 4 }] },
+        options: { indexAxis: type === "hbar" ? "y" : "x", responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c: any) => `${c.raw}%` } } },
+          scales: type === "hbar" ? { x: { beginAtZero: true, ticks: { callback: (v: any) => v + "%" } }, y: { ticks: { font: { size: 9 } } } } : { y: { beginAtZero: true, ticks: { callback: (v: any) => v + "%" } }, x: { ticks: { font: { size: 9 }, maxRotation: 60 } } } } };
+    }
+    chart.current = new Chart(canvas.current, cfg);
+    return () => chart.current?.destroy();
+  }, [data, type, isDiv]);
+  return (
+    <div className="card">
+      <div className="cardhead">
+        <div className="ct"><b>{title}</b><small>by {isDiv ? "division" : "district"} · {indLabel} (Overall %)</small></div>
+        <select className="chartsel" value={type} onChange={(e) => setType(e.target.value as ChartKind)}>
+          {COMPARE_OPTS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+        </select>
+      </div>
+      <div className="chartbox"><canvas ref={canvas} /></div>
+      <div className="tablewrap">
+        <table>
+          <thead><tr><th>#</th><th style={{ textAlign: "left" }}>{isDiv ? "Division" : "District"}</th><th>Overall %</th></tr></thead>
+          <tbody>{data.map((e, i) => (
+            <tr key={e.u}><td>{i + 1}</td><td style={{ textAlign: "left" }}><span className="sw" style={{ background: isDiv ? (DIVCOLORS[e.u] || "#888") : lerpRYG(0.5) }} />{e.u}</td><td style={{ fontWeight: 700 }}>{e.v}%</td></tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ================= main ================= */
 export default function PrimaryAnalysis() {
   const [pd, setPd] = useState<any>(null);
@@ -324,8 +374,16 @@ export default function PrimaryAnalysis() {
   const rMn = rvals.length ? Math.min(...rvals) : 0, rMx = rvals.length ? Math.max(...rvals) : 1;
   const heat = useMemo(() => level === "All Districts" ? { vals: Object.fromEntries(ranked.map((e) => [e.u, e.v])), mn: rMn, mx: rMx } : undefined, [ranked, level]); // eslint-disable-line
   const divColorMap = useMemo(() => { if (level !== "All Divisions" || !pd) return undefined; const m: Record<string, string> = {}; for (const [div, dists] of Object.entries(pd.divisions)) for (const d of dists as string[]) m[d] = DIVCOLORS[div] || "#888"; return m; }, [level, pd]);
-  const suf = "%";
   const fmtV = (v: number) => v + "%";
+  // per-table comparison: every table of the topic, compared across all districts/divisions (by its 1st indicator)
+  const compTables = useMemo(() => {
+    if (!isComp || !pd) return [] as { title: string; indLabel: string; data: { u: string; v: number }[] }[];
+    return refTables.map((t: any, ti: number) => ({
+      title: t.title, indLabel: t.indicators?.[0]?.label || "",
+      data: compUnits.map((u) => { const ind = pd.data[compKey]?.[u]?.tables?.[sheet]?.[ti]?.indicators?.[0]; return { u, v: ind ? ind.oP : null }; })
+        .filter((e: any) => e.v != null).sort((a: any, b: any) => b.v - a.v) as { u: string; v: number }[],
+    }));
+  }, [isComp, level, sheet, pd]); // eslint-disable-line
 
   if (!pd) return <main className="dash"><div className="card" style={{ marginTop: 20 }}><h3>Loading primary analysis…</h3></div></main>;
 
@@ -362,57 +420,16 @@ export default function PrimaryAnalysis() {
           <>
             {/* compare summary */}
             <div className="kpis">
-              <div className="kpi"><div className="l">{level === "All Divisions" ? "Divisions" : "Districts"}</div><div className="v">{ranked.length}</div><div className="d up">{selInd?.label}</div></div>
+              <div className="kpi"><div className="l">Comparing</div><div className="v">{compUnits.length}</div><div className="d up">{level === "All Divisions" ? "divisions" : "districts"} · {sheet}</div></div>
               {ranked.length > 0 && <>
-                <div className="kpi"><div className="l">Highest</div><div className="v" style={{ color: "#1ba97a" }}>{ranked[0].u.replace(" Division", "")}</div><div className="d up">{fmtV(ranked[0].v)}</div></div>
-                <div className="kpi"><div className="l">Lowest</div><div className="v" style={{ color: "#e9603a" }}>{ranked[ranked.length - 1].u.replace(" Division", "")}</div><div className="d up">{fmtV(ranked[ranked.length - 1].v)}</div></div>
+                <div className="kpi"><div className="l">Highest — {selInd?.label}</div><div className="v" style={{ color: "#1ba97a" }}>{ranked[0].u.replace(" Division", "")}</div><div className="d up">{fmtV(ranked[0].v)}</div></div>
+                <div className="kpi"><div className="l">Lowest — {selInd?.label}</div><div className="v" style={{ color: "#e9603a" }}>{ranked[ranked.length - 1].u.replace(" Division", "")}</div><div className="d up">{fmtV(ranked[ranked.length - 1].v)}</div></div>
               </>}
             </div>
 
-            <div className="grid maprow">
-              <div className="card mapcard">
-                <h3>Karnataka <small>{level === "All Divisions" ? "coloured by division — click to drill in" : `${selInd?.label} — heat map, click to drill in`}</small></h3>
-                <KarnatakaMap level={level} unit="" divisions={pd.divisions} heat={heat} divColorMap={divColorMap} onPick={(d) => { setLevel("District"); setUnit(d); }} />
-                {level === "All Divisions" && (
-                  <div className="divlegend">{Object.keys(pd.divisions).map((dv) => (<span key={dv}><i style={{ background: DIVCOLORS[dv] }} />{dv.replace(" Division", "")}</span>))}</div>
-                )}
-              </div>
-              <div className="card compcard">
-                {level === "All Divisions" ? (
-                  <>
-                    <h3>Division comparison <small>{selInd?.label}</small></h3>
-                    <div className="chartbox" style={{ height: 240 }}><DivBarChart data={ranked} suf={suf} /></div>
-                    <div className="tablewrap" style={{ marginTop: 10 }}>
-                      <table><thead><tr><th></th><th style={{ textAlign: "left" }}>Division</th><th>Overall %</th></tr></thead>
-                        <tbody>{ranked.map((e) => (<tr key={e.u} onClick={() => { setLevel("Division"); setUnit(e.u); }} style={{ cursor: "pointer" }}>
-                          <td><span className="sw" style={{ background: DIVCOLORS[e.u] }} /></td><td style={{ textAlign: "left" }}>{e.u}</td><td style={{ textAlign: "center", fontWeight: 700 }}>{fmtV(e.v)}</td></tr>))}</tbody></table>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <h3>District ranking <small>{selInd?.label}</small></h3>
-                    {(() => {
-                      const cols = isNarrow ? 1 : 3;
-                      const per = Math.ceil(ranked.length / cols);
-                      const row = (e: { u: string; v: number }, gi: number) => (
-                        <tr key={e.u} onClick={() => { setLevel("District"); setUnit(e.u); }} style={{ cursor: "pointer" }}>
-                          <td><span className="rankbadge" style={{ background: lerpRYG(rMx > rMn ? (e.v - rMn) / (rMx - rMn) : 0.5) }}>{gi + 1}</span></td>
-                          <td style={{ textAlign: "left" }}>{e.u}</td><td style={{ textAlign: "center", fontWeight: 700 }}>{fmtV(e.v)}</td>
-                        </tr>);
-                      return (
-                        <div className={cols === 1 ? "rankwrap" : "rank2col"}>
-                          {Array.from({ length: cols }).map((_, col) => (
-                            <table key={col}>
-                              <thead><tr><th className="rk">#</th><th style={{ textAlign: "left" }}>District</th><th>Overall %</th></tr></thead>
-                              <tbody>{ranked.slice(col * per, col * per + per).map((e, i) => row(e, col * per + i))}</tbody>
-                            </table>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </>
-                )}
-              </div>
+            {/* one card per table, each compared across all districts / divisions */}
+            <div className={"grid primary-charts " + (compTables.length % 4 === 0 ? "cols4" : "cols3")}>
+              {compTables.map((c, i) => <CompareCard key={sheet + level + i} title={c.title} indLabel={c.indLabel} data={c.data} isDiv={level === "All Divisions"} />)}
             </div>
           </>
         ) : (
