@@ -336,8 +336,8 @@ export default function PrimaryAnalysis() {
           </select>
         </div>
         {isComp && (
-          <div className="ctl" style={{ flex: "1 1 320px" }}><label>Indicator to compare</label>
-            <select value={indKey} onChange={(e) => setIndKey(e.target.value)} style={{ width: "100%" }}>
+          <div className="ctl"><label>Indicator to compare</label>
+            <select value={indKey} onChange={(e) => setIndKey(e.target.value)} style={{ width: "100%", maxWidth: 340 }}>
               {indOptions.map((o: any) => <option key={o.key} value={o.key}>{o.tt.replace(/^Table[^:]*:\s*/, "")} — {o.label}</option>)}
             </select>
           </div>
