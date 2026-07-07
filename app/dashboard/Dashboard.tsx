@@ -19,6 +19,13 @@ export default function Dashboard({ data: D }: { data: any }) {
   const [analysis, setAnalysis] = useState("Beneficiary");
   const [cat] = useState("ALL"); // always all categories (SC + ST + General); selector removed
   const [view, setView] = useState("trend");
+  const [isNarrow, setIsNarrow] = useState(false); // one-table ranking on phones
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 760px)");
+    const upd = () => setIsNarrow(mq.matches);
+    upd(); mq.addEventListener("change", upd);
+    return () => mq.removeEventListener("change", upd);
+  }, []);
 
   const mainRef = useRef<HTMLCanvasElement>(null);
   const compRef = useRef<HTMLCanvasElement>(null);
@@ -497,6 +504,23 @@ export default function Dashboard({ data: D }: { data: any }) {
               <>
                 <h3>{info ? `District Ranking by CAGR — ${cat === "ALL" ? "General" : cat}` : "District Ranking"}</h3>
                 {info ? (
+                  isNarrow ? (
+                    <div className="rankwrap">
+                      <table>
+                        <thead><tr><th className="rk">#</th><th>District</th><th>CAGR %</th><th>{analysis === "Habitation" ? "FHTC %" : "Beneficiaries"}</th></tr></thead>
+                        <tbody>
+                          {ranking.map((e, i) => (
+                            <tr key={e.d} onClick={() => setRegion(e.d)}>
+                              <td className="rk">{i + 1}</td>
+                              <td><span className="sw" style={{ background: lerpRYG(rMx > rMn && e.val != null ? (e.val - rMn) / (rMx - rMn) : 0.5) }} />{e.d}</td>
+                              <td style={{ fontWeight: 700, color: "#13233a" }}>{e.cg == null ? "—" : fmt1(e.cg) + "%"}</td>
+                              <td>{info.fmt(e.val)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
                   <div className="rank2col">
                     {(() => { const per = Math.ceil(ranking.length / 3); return [0, 1, 2].map((col) => { const chunk = ranking.slice(col * per, col * per + per); return (
                       <table key={col}>
@@ -514,6 +538,7 @@ export default function Dashboard({ data: D }: { data: any }) {
                       </table>
                     ); }); })()}
                   </div>
+                  )
                 ) : (
                   <p style={{ color: "#5b6b7d", fontSize: 13 }}>Not available — Financial / Per-Unit are state-level only.</p>
                 )}
