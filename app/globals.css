@@ -367,3 +367,9 @@ main.dash .tablewrap{overflow-x:auto}
 .compcard .rank2col td{padding:6px 6px;font-size:13px}
 .compcard .rank2col .rankbadge{width:22px;height:22px;font-size:11px}
 @media (max-width:760px){ .compcard .rank2col{flex-direction:column;gap:0} .compcard .rank2col table{width:100%} }
+
+/* compare cards: even, centered table columns so SC/ST (few columns) fill the card */
+.comparecard2 .tablewrap table{table-layout:fixed;width:100%}
+.comparecard2 .tablewrap th,.comparecard2 .tablewrap td{text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:7px 6px}
+.comparecard2 .tablewrap th:first-child,.comparecard2 .tablewrap td:first-child{width:34px}
+.comparecard2 .tablewrap th:nth-child(2),.comparecard2 .tablewrap td:nth-child(2){text-align:left;width:38%}

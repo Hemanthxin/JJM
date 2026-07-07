@@ -312,7 +312,7 @@ function CompareCard({ title, indLabel, data, isDiv }: { title: string; indLabel
   }, [rows, type, cat, isDiv, pre]);
   const vv = rows.map((r) => r.ind[pre + "P"]); const vmn = Math.min(...vv), vmx = Math.max(...vv);
   return (
-    <div className="card">
+    <div className="card comparecard2">
       <div className="cardhead">
         <div className="ct"><b>{title}</b><small>by {isDiv ? "division" : "district"} · {indLabel}</small></div>
         <div className="headctl">
