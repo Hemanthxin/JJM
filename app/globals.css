@@ -345,3 +345,25 @@ main.dash .tablewrap{overflow-x:auto}
   .rank2col td{font-size:12.5px;padding:7px 6px}
   .primary-charts .chartbox{height:200px!important}
 }
+
+/* ---- Primary Analysis: All Districts / All Divisions compare ---- */
+.rankbadge{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;color:#fff;font-weight:700;font-size:12px;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+.rankwrap .rk{text-align:center}
+.compcard{height:560px;display:flex;flex-direction:column}
+.compcard .rankwrap{flex:1;overflow-y:auto}
+.compcard table{width:100%;border-collapse:collapse}
+.compcard th{position:sticky;top:0;background:#f4f8fe;color:#3d5675;font-weight:600;padding:8px 10px;text-align:center;border-bottom:1px solid #e4ebf4;z-index:1}
+.compcard td{padding:8px 10px;text-align:center;border-bottom:1px solid #f1f4f8;color:#2a3b52}
+.compcard tbody tr:hover{background:#f4f8fe}
+.divlegend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:12.5px;color:#3a4b63}
+.divlegend span{display:flex;align-items:center;gap:6px}
+.divlegend i{width:13px;height:13px;border-radius:3px;display:inline-block}
+@media (max-width:1100px){ .compcard{height:auto} }
+
+/* 3-table district ranking inside the compare card */
+.compcard .rank2col{flex:1;gap:14px;align-items:flex-start}
+.compcard .rank2col table{flex:1}
+.compcard .rank2col th{padding:7px 6px;font-size:11.5px;position:static;background:transparent}
+.compcard .rank2col td{padding:6px 6px;font-size:13px}
+.compcard .rank2col .rankbadge{width:22px;height:22px;font-size:11px}
+@media (max-width:760px){ .compcard .rank2col{flex-direction:column;gap:0} .compcard .rank2col table{width:100%} }

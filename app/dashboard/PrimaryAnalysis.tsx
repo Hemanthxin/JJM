@@ -17,6 +17,15 @@ const OVERALL = "#2f6fed", SCCOL = "#7b3ff2", STCOL = "#f07f2f";
 const PALETTE = ["#2f6fed", "#7b3ff2", "#f07f2f", "#1ba97a", "#e9603a", "#00a3bf", "#d9488a", "#8bc34a", "#ffb300", "#5c6bc0", "#26a69a"];
 const fmtN = (v: any) => (v == null ? "—" : Math.round(v).toLocaleString("en-IN"));
 const short = (s: string) => (s.length > 22 ? s.slice(0, 20) + "…" : s);
+const DIVCOLORS: Record<string, string> = {
+  "Bengaluru Division": "#2f6fed", "Mysuru Division": "#f07f2f", "Belagavi Division": "#1ba97a", "Kalaburagi Division": "#7b3ff2",
+};
+// red (low) -> yellow -> green (high) heat scale for rankings / map
+const lerpRYG = (t: number) => {
+  t = Math.max(0, Math.min(1, t));
+  const a = t < 0.5 ? [214, 64, 64] : [240, 190, 40], b = t < 0.5 ? [240, 190, 40] : [38, 166, 90], u = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+  return `rgb(${a.map((x, i) => Math.round(x + (b[i] - x) * u)).join(",")})`;
+};
 
 type ChartKind = "doughnut" | "pie" | "polarArea" | "bar" | "hbar" | "stacked" | "radar" | "line";
 const CHART_OPTS: { v: ChartKind; t: string }[] = [
@@ -167,8 +176,9 @@ function CompositionDoughnut({ cards }: { cards: any }) {
 }
 
 /* ================= Karnataka map ================= */
-function KarnatakaMap({ level, unit, divisions, onPick }:
-  { level: string; unit: string; divisions: Record<string, string[]>; onPick: (d: string) => void }) {
+function KarnatakaMap({ level, unit, divisions, onPick, heat, divColorMap }:
+  { level: string; unit: string; divisions: Record<string, string[]>; onPick: (d: string) => void;
+    heat?: { vals: Record<string, number>; mn: number; mx: number }; divColorMap?: Record<string, string> }) {
   const div = useRef<HTMLDivElement>(null);
   const map = useRef<any>(null);
   const geo = useRef<any>(null);
@@ -192,6 +202,8 @@ function KarnatakaMap({ level, unit, divisions, onPick }:
       const layer = L.geoJSON(g, {
         style: (f: any) => {
           const d = f.properties.d;
+          if (heat) { const v = heat.vals[dataOf(d)]; return { fillColor: v == null ? "#e2eaf6" : lerpRYG(heat.mx > heat.mn ? (v - heat.mn) / (heat.mx - heat.mn) : 0.5), fillOpacity: 0.9, color: "#fff", weight: 1 }; }
+          if (divColorMap) return { fillColor: divColorMap[dataOf(d)] || "#e2eaf6", fillOpacity: 0.82, color: "#fff", weight: 1 };
           if (level === "State") return { fillColor: "#2f6fed", fillOpacity: 0.7, color: "#fff", weight: 1 };
           return hi.has(d)
             ? { fillColor: "#2f6fed", fillOpacity: 0.92, color: "#12336f", weight: 2.5 }
@@ -200,9 +212,11 @@ function KarnatakaMap({ level, unit, divisions, onPick }:
         onEachFeature: (f: any, lyr: any) => {
           const d = f.properties.d;
           lyr.on("click", () => pick.current(dataOf(d)));
-          lyr.on("mouseover", () => lyr.setStyle({ weight: 3, color: "#12336f", fillOpacity: 0.95 }));
+          lyr.on("mouseover", () => lyr.setStyle({ weight: 3, color: "#12336f", fillOpacity: 0.98 }));
           lyr.on("mouseout", () => layer.resetStyle(lyr));
-          lyr.bindTooltip(`<b>${d}</b>`, { direction: "center", className: "distlabel", sticky: !hi.has(d), permanent: hi.has(d), opacity: 1 });
+          const hv = heat ? heat.vals[dataOf(d)] : null;
+          lyr.bindTooltip(hv != null ? `<b>${d}</b><br><span class="lv">${hv}</span>` : `<b>${d}</b>`,
+            { direction: "center", className: "distlabel", sticky: !hi.has(d), permanent: hi.has(d), opacity: 1 });
         },
       }).addTo(m);
       m.__geo = layer;
@@ -210,7 +224,7 @@ function KarnatakaMap({ level, unit, divisions, onPick }:
       requestAnimationFrame(() => { fit(); setTimeout(fit, 150); setTimeout(fit, 400); });
     })();
     return () => { cancelled = true; };
-  }, [level, unit, divisions]);
+  }, [level, unit, divisions, heat, divColorMap]);
 
   // responsive: refit whenever the container resizes
   useEffect(() => {
@@ -231,6 +245,24 @@ function KarnatakaMap({ level, unit, divisions, onPick }:
   return <div ref={div} className="kmap" />;
 }
 
+/* division comparison bar chart — one bar per division, distinct colour */
+function DivBarChart({ data, suf }: { data: { u: string; v: number }[]; suf: string }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const chart = useRef<Chart | null>(null);
+  useEffect(() => {
+    if (!canvas.current) return;
+    chart.current?.destroy();
+    chart.current = new Chart(canvas.current, {
+      type: "bar",
+      data: { labels: data.map((d) => d.u.replace(" Division", "")), datasets: [{ data: data.map((d) => d.v), backgroundColor: data.map((d) => DIVCOLORS[d.u] || "#888"), borderRadius: 6 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c: any) => `${c.raw}${suf}` } } },
+        scales: { y: { beginAtZero: true, ticks: { color: "#5b6b7d", callback: (v: any) => v + suf } }, x: { ticks: { color: "#1f2d3d", font: { size: 12 } } } } },
+    });
+    return () => chart.current?.destroy();
+  }, [data, suf]);
+  return <canvas ref={canvas} />;
+}
+
 /* ================= main ================= */
 export default function PrimaryAnalysis() {
   const [pd, setPd] = useState<any>(null);
@@ -238,11 +270,19 @@ export default function PrimaryAnalysis() {
   const [unit, setUnit] = useState("Karnataka");
   const [sheet, setSheet] = useState("");
   const [metric, setMetric] = useState<Metric>("all");
+  const [indKey, setIndKey] = useState("0-0"); // selected indicator (tableIdx-indIdx) for compare modes
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 760px)");
+    const upd = () => setIsNarrow(mq.matches);
+    upd(); mq.addEventListener("change", upd);
+    return () => mq.removeEventListener("change", upd);
+  }, []);
 
   useEffect(() => { fetch("/primary_data.json").then((r) => r.json()).then((d) => { setPd(d); setSheet(d.sheets[0]); }); }, []);
 
-  const units: string[] = pd ? pd.levels[level] : [];
-  useEffect(() => { if (pd && !units.includes(unit)) setUnit(units[0]); }, [level, pd]); // eslint-disable-line
+  const units: string[] = (pd && pd.levels[level]) || [];
+  useEffect(() => { if (units.length && !units.includes(unit)) setUnit(units[0]); }, [level, pd]); // eslint-disable-line
 
   const node = pd?.data?.[level]?.[unit];
   const tables = node?.tables?.[sheet] || [];
@@ -251,6 +291,28 @@ export default function PrimaryAnalysis() {
   const types = useMemo(() => tables.map(() => "doughnut" as ChartKind), [tables]);
   const districtCount = pd ? (level === "State" ? pd.levels.District.length : level === "Division" ? (pd.divisions[unit]?.length || 0) : 1) : 0;
 
+  // ----- compare modes: All Districts / All Divisions -----
+  const isComp = level === "All Districts" || level === "All Divisions";
+  const compKey = level === "All Divisions" ? "Division" : "District";
+  const compUnits: string[] = !pd ? [] : level === "All Divisions" ? Object.keys(pd.divisions) : pd.levels.District;
+  const refTables = pd?.data?.State?.Karnataka?.tables?.[sheet] || [];
+  const indOptions = useMemo(() => refTables.flatMap((t: any, ti: number) =>
+    t.indicators.map((ind: any, ii: number) => ({ key: `${ti}-${ii}`, ti, ii, tt: t.title, label: ind.label }))), [refTables]);
+  useEffect(() => { if (indOptions.length && !indOptions.some((o: any) => o.key === indKey)) setIndKey(indOptions[0].key); }, [sheet, indOptions]); // eslint-disable-line
+  const selInd = indOptions.find((o: any) => o.key === indKey) || indOptions[0];
+  const mKey = metric === "n" ? "oN" : "oP";
+  const ranked = useMemo(() => {
+    if (!isComp || !selInd) return [] as { u: string; v: number }[];
+    return compUnits.map((u) => { const t = pd.data[compKey]?.[u]?.tables?.[sheet]?.[selInd.ti]; const ind = t?.indicators?.[selInd.ii]; return { u, v: ind ? ind[mKey] : null }; })
+      .filter((e) => e.v != null).sort((a: any, b: any) => b.v - a.v) as { u: string; v: number }[];
+  }, [isComp, level, sheet, indKey, metric, pd]); // eslint-disable-line
+  const rvals = ranked.map((e) => e.v);
+  const rMn = rvals.length ? Math.min(...rvals) : 0, rMx = rvals.length ? Math.max(...rvals) : 1;
+  const heat = useMemo(() => level === "All Districts" ? { vals: Object.fromEntries(ranked.map((e) => [e.u, e.v])), mn: rMn, mx: rMx } : undefined, [ranked, level]); // eslint-disable-line
+  const divColorMap = useMemo(() => { if (level !== "All Divisions" || !pd) return undefined; const m: Record<string, string> = {}; for (const [div, dists] of Object.entries(pd.divisions)) for (const d of dists as string[]) m[d] = DIVCOLORS[div] || "#888"; return m; }, [level, pd]);
+  const suf = metric === "n" ? "" : "%";
+  const fmtV = (v: number) => metric === "n" ? fmtN(v) : v + "%";
+
   if (!pd) return <main className="dash"><div className="card" style={{ marginTop: 20 }}><h3>Loading primary analysis…</h3></div></main>;
 
   return (
@@ -258,10 +320,10 @@ export default function PrimaryAnalysis() {
       <div className="controls">
         <div className="ctl"><label>Level</label>
           <select value={level} onChange={(e) => setLevel(e.target.value)}>
-            <option>State</option><option>District</option><option>Division</option>
+            <option>State</option><option>District</option><option>All Districts</option><option>Division</option><option>All Divisions</option>
           </select>
         </div>
-        {level !== "State" && (
+        {(level === "District" || level === "Division") && (
           <div className="ctl"><label>{level === "District" ? "District" : "Division"}</label>
             <select value={unit} onChange={(e) => setUnit(e.target.value)}>
               {units.map((u) => <option key={u}>{u}</option>)}
@@ -273,26 +335,93 @@ export default function PrimaryAnalysis() {
             {pd.sheets.map((s: string) => <option key={s}>{s}</option>)}
           </select>
         </div>
+        {isComp && (
+          <div className="ctl"><label>Indicator to compare</label>
+            <select value={indKey} onChange={(e) => setIndKey(e.target.value)} style={{ width: "100%", maxWidth: 340 }}>
+              {indOptions.map((o: any) => <option key={o.key} value={o.key}>{o.tt.replace(/^Table[^:]*:\s*/, "")} — {o.label}</option>)}
+            </select>
+          </div>
+        )}
         <div className="ctl"><label>Values</label>
-          <div className="seg">{(["all", "pct", "n"] as Metric[]).map((v) => (
+          <div className="seg">{(isComp ? (["pct", "n"] as Metric[]) : (["all", "pct", "n"] as Metric[])).map((v) => (
             <button key={v} className={metric === v ? "active" : ""} onClick={() => setMetric(v)}>{v === "all" ? "All" : v === "pct" ? "%" : "N"}</button>))}</div>
         </div>
       </div>
 
       <main className="dash">
-        {/* summary cards */}
-        <div className="kpis">
-          <div className="kpi"><div className="l">Overall (Base N)</div><div className="v">{fmtN(cards?.overall)}</div><div className="d up">{unit}</div></div>
-          <div className="kpi"><div className="l">SC (N)</div><div className="v" style={{ color: SCCOL }}>{fmtN(cards?.sc)}</div><div className="d up">{cards ? Math.round((100 * cards.sc) / cards.overall) : 0}% of sample</div></div>
-          <div className="kpi"><div className="l">ST (N)</div><div className="v" style={{ color: STCOL }}>{fmtN(cards?.st)}</div><div className="d up">{cards ? Math.round((100 * cards.st) / cards.overall) : 0}% of sample</div></div>
-          <div className="kpi"><div className="l">Total Districts</div><div className="v" style={{ color: "#1ba97a" }}>{districtCount}</div><div className="d up">{level === "State" ? "Karnataka" : level === "Division" ? unit : "district"}</div></div>
-        </div>
+        {isComp ? (
+          <>
+            {/* compare summary */}
+            <div className="kpis">
+              <div className="kpi"><div className="l">{level === "All Divisions" ? "Divisions" : "Districts"}</div><div className="v">{ranked.length}</div><div className="d up">{selInd?.label}</div></div>
+              {ranked.length > 0 && <>
+                <div className="kpi"><div className="l">Highest</div><div className="v" style={{ color: "#1ba97a" }}>{ranked[0].u.replace(" Division", "")}</div><div className="d up">{fmtV(ranked[0].v)}</div></div>
+                <div className="kpi"><div className="l">Lowest</div><div className="v" style={{ color: "#e9603a" }}>{ranked[ranked.length - 1].u.replace(" Division", "")}</div><div className="d up">{fmtV(ranked[ranked.length - 1].v)}</div></div>
+              </>}
+            </div>
 
-        {/* per-table charts — 4 per row only when the count is a multiple of 4 (8 -> 4+4);
-            otherwise 3 per row (5 -> 3+2, 6 -> 3+3) */}
-        <div className={"grid primary-charts " + (tables.length % 4 === 0 ? "cols4" : "cols3")}>
-          {tables.map((t: any, i: number) => <TableBlock key={sheet + i} table={t} metric={metric} type={types[i]} />)}
-        </div>
+            <div className="grid maprow">
+              <div className="card mapcard">
+                <h3>Karnataka <small>{level === "All Divisions" ? "coloured by division — click to drill in" : `${selInd?.label} — heat map, click to drill in`}</small></h3>
+                <KarnatakaMap level={level} unit="" divisions={pd.divisions} heat={heat} divColorMap={divColorMap} onPick={(d) => { setLevel("District"); setUnit(d); }} />
+                {level === "All Divisions" && (
+                  <div className="divlegend">{Object.keys(pd.divisions).map((dv) => (<span key={dv}><i style={{ background: DIVCOLORS[dv] }} />{dv.replace(" Division", "")}</span>))}</div>
+                )}
+              </div>
+              <div className="card compcard">
+                {level === "All Divisions" ? (
+                  <>
+                    <h3>Division comparison <small>{selInd?.label}</small></h3>
+                    <div className="chartbox" style={{ height: 240 }}><DivBarChart data={ranked} suf={suf} /></div>
+                    <div className="tablewrap" style={{ marginTop: 10 }}>
+                      <table><thead><tr><th></th><th style={{ textAlign: "left" }}>Division</th><th>{metric === "n" ? "N" : "%"}</th></tr></thead>
+                        <tbody>{ranked.map((e) => (<tr key={e.u} onClick={() => { setLevel("Division"); setUnit(e.u); }} style={{ cursor: "pointer" }}>
+                          <td><span className="sw" style={{ background: DIVCOLORS[e.u] }} /></td><td style={{ textAlign: "left" }}>{e.u}</td><td style={{ textAlign: "center", fontWeight: 700 }}>{fmtV(e.v)}</td></tr>))}</tbody></table>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h3>District ranking <small>{selInd?.label}</small></h3>
+                    {(() => {
+                      const cols = isNarrow ? 1 : 3;
+                      const per = Math.ceil(ranked.length / cols);
+                      const row = (e: { u: string; v: number }, gi: number) => (
+                        <tr key={e.u} onClick={() => { setLevel("District"); setUnit(e.u); }} style={{ cursor: "pointer" }}>
+                          <td><span className="rankbadge" style={{ background: lerpRYG(rMx > rMn ? (e.v - rMn) / (rMx - rMn) : 0.5) }}>{gi + 1}</span></td>
+                          <td style={{ textAlign: "left" }}>{e.u}</td><td style={{ textAlign: "center", fontWeight: 700 }}>{fmtV(e.v)}</td>
+                        </tr>);
+                      return (
+                        <div className={cols === 1 ? "rankwrap" : "rank2col"}>
+                          {Array.from({ length: cols }).map((_, col) => (
+                            <table key={col}>
+                              <thead><tr><th className="rk">#</th><th style={{ textAlign: "left" }}>District</th><th>{metric === "n" ? "N" : "%"}</th></tr></thead>
+                              <tbody>{ranked.slice(col * per, col * per + per).map((e, i) => row(e, col * per + i))}</tbody>
+                            </table>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* summary cards */}
+            <div className="kpis">
+              <div className="kpi"><div className="l">Overall (Base N)</div><div className="v">{fmtN(cards?.overall)}</div><div className="d up">{unit}</div></div>
+              <div className="kpi"><div className="l">SC (N)</div><div className="v" style={{ color: SCCOL }}>{fmtN(cards?.sc)}</div><div className="d up">{cards ? Math.round((100 * cards.sc) / cards.overall) : 0}% of sample</div></div>
+              <div className="kpi"><div className="l">ST (N)</div><div className="v" style={{ color: STCOL }}>{fmtN(cards?.st)}</div><div className="d up">{cards ? Math.round((100 * cards.st) / cards.overall) : 0}% of sample</div></div>
+              <div className="kpi"><div className="l">Total Districts</div><div className="v" style={{ color: "#1ba97a" }}>{districtCount}</div><div className="d up">{level === "State" ? "Karnataka" : level === "Division" ? unit : "district"}</div></div>
+            </div>
+
+            {/* per-table charts */}
+            <div className={"grid primary-charts " + (tables.length % 4 === 0 ? "cols4" : "cols3")}>
+              {tables.map((t: any, i: number) => <TableBlock key={sheet + i} table={t} metric={metric} type={types[i]} />)}
+            </div>
+          </>
+        )}
       </main>
     </>
   );
